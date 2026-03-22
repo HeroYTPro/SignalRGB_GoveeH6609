@@ -66,10 +66,11 @@ export function Initialize(){
 
 /** @type {number[]} */
 let prevRGBData = null; // Хранит предыдущие цвета
-const smoothFactor = 0.1; // 0 < smoothFactor <= 1, чем меньше — тем плавнее
+const smoothFactor = 0.4; // 0 < smoothFactor <= 1, чем меньше — тем плавнее
 export function Render(){
 	const targetRGB = subdevices.length > 0 ? GetRGBFromSubdevices() : GetDeviceRGB();
 	const RGBData = smoothRGB(targetRGB);
+	RGBData = enhanceRGB(RGBData, 1.5);
 
 	govee.SendRGB(RGBData);
 	device.pause(10);
@@ -161,6 +162,14 @@ function fetchDeviceInfoFromTableAndConfigure() {
 		device.setName(`Govee: ${controller.sku}`);
 		SetLedCount(20);
 	}
+}
+
+function enhanceRGB(rgbData, factor = 1.5) {
+    const enhanced = [];
+    for(let i = 0; i < rgbData.length; i++){
+        enhanced[i] = Math.min(255, Math.round(rgbData[i] * factor));
+    }
+    return enhanced;
 }
 
 function SetLedCount(count){
