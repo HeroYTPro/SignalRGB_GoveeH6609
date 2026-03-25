@@ -808,7 +808,7 @@ const GoveeDeviceLibrary = {
 	},
 	H6609: {
 		name: "Gaming Light Strip G1",
-		deviceImage: "",
+		deviceImage: "https://assets.signalrgb.com/devices/brands/govee/wifi/h6609.png",
 		sku: "H6609",
 		state: 1,
 		supportRazer: true,
