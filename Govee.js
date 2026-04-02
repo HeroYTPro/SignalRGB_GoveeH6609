@@ -32,12 +32,6 @@ let ledNames = [];
 let ledPositions = [];
 let subdevices = [];
 
-let initTries = 0;
-let maxInitTries = 10;
-let lastInitTime = 0;
-let initInterval = 2000; // каждые 2 секунды
-let initializedProperly = false;
-
 export function Initialize(){
 	device.addFeature("base64");
 
@@ -70,50 +64,10 @@ export function Initialize(){
 	govee.setDeviceState(true);
 }
 
-function ensureInitialized() {
-	const now = Date.now();
-
-	if (initializedProperly) return;
-
-	if (now - lastInitTime < initInterval) return;
-
-	lastInitTime = now;
-
-	govee.setDeviceState(true);
-	govee.SetRazerMode(true);
-
-	initTries++;
-
-	device.log(`Init attempt: ${initTries}`);
-
-	if (initTries >= maxInitTries) {
-		initializedProperly = true;
-		device.log("Initialization complete (forced)");
-	}
-}
-
-let lastFrameTime = Date.now();
-
-function watchdog() {
-	const now = Date.now();
-
-	// если вдруг лаг/пауза — пробуем переинициализировать
-	if (now - lastFrameTime > 3000) {
-		initializedProperly = false;
-		initTries = 0;
-		device.log("Reinitializing due to timeout");
-	}
-
-	lastFrameTime = now;
-}
-
 /** @type {number[]} */
 let prevRGBData = null; // Хранит предыдущие цвета
 const smoothFactor = 0.2; // 0 < smoothFactor <= 1, чем меньше — тем плавнее
-export function Render(){
-	watchdog();
-	ensureInitialized();
-	
+export function Render(){	
 	const targetRGB = subdevices.length > 0 ? GetRGBFromSubdevices() : GetDeviceRGB();
 	const RGBData = smoothRGB(targetRGB);
 
