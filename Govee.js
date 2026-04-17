@@ -32,88 +32,46 @@ let ledNames = [];
 let ledPositions = [];
 let subdevices = [];
 
-let syncHealth = {
-	connected: false,
-	lastOk: 0,
-	lastProbe: 0,
-	failCount: 0,
-	reconnecting: false,
-};
-
-const PROBE_INTERVAL = 5000;
-const DISCONNECT_TIMEOUT = 15000;
-const MAX_FAILS = 3;
-
-export function Initialize() {
+export function Initialize(){
 	device.addFeature("base64");
 
 	device.setName(controller.sku);
 	device.setImageFromUrl(controller.deviceImage);
 
-	if (UDPServer !== undefined) {
+	if(UDPServer !== undefined) {
 		UDPServer.stop();
 		UDPServer = undefined;
 	}
+	//Make sure we don't have a server floating around still.
 
 	UDPServer = new UdpSocketServer({
-		ip: controller.ip,
-		broadcastPort: 4003,
-		listenPort: 4002
+		ip : controller.ip,
+		broadcastPort : 4003,
+		listenPort : 4002
 	});
 
 	UDPServer.start();
+	//Establish a new udp server. This is now required for using udp.send.
 
 	ClearSubdevices();
 	fetchDeviceInfoFromTableAndConfigure();
 
 	govee = new GoveeProtocol(controller.ip, controller.supportDreamView, controller.supportRazer);
-
-	syncHealth.connected = false;
-	syncHealth.lastOk = Date.now();
-	syncHealth.lastProbe = 0;
-	syncHealth.failCount = 0;
-
+	// This is what happens in my wireshark
 	govee.setDeviceState(true);
-	if (controller.supportRazer) {
-		govee.SetRazerMode(true);
-	}
+	govee.SetRazerMode(true);
+	govee.SetRazerMode(true);
+	govee.setDeviceState(true);
 }
 
 /** @type {number[]} */
 let prevRGBData = null; // Хранит предыдущие цвета
 const smoothFactor = 0.2; // 0 < smoothFactor <= 1, чем меньше — тем плавнее
-export function Render() {
-	if (!govee) return;
-
-	const now = Date.now();
-
-	if (now - syncHealth.lastProbe >= PROBE_INTERVAL) {
-		syncHealth.lastProbe = now;
-		govee.Probe();
-	}
-
-	if (now - syncHealth.lastOk > DISCONNECT_TIMEOUT) {
-		syncHealth.connected = false;
-	}
-
+export function Render(){	
 	const targetRGB = subdevices.length > 0 ? GetRGBFromSubdevices() : GetDeviceRGB();
 	const RGBData = smoothRGB(targetRGB);
 
-	const ok = govee.SendRGB(RGBData);
-
-	if (ok) {
-		syncHealth.connected = true;
-		syncHealth.lastOk = now;
-		syncHealth.failCount = 0;
-	} else {
-		syncHealth.failCount++;
-
-		if (syncHealth.failCount >= MAX_FAILS) {
-			govee.Reconnect();
-			syncHealth.failCount = 0;
-		}
-	}
-
+	govee.SendRGB(RGBData);
 	device.pause(10);
 }
 
@@ -129,15 +87,14 @@ export function onvariableLedCountChanged(){
 	SetLedCount(variableLedCount);
 }
 
-function GetRGBFromSubdevices() {
+function GetRGBFromSubdevices(){
 	const RGBData = [];
-	let offset = 0;
 
-	for (const subdevice of subdevices) {
-		const positions = subdevice.ledPositions;
+	for(const subdevice of subdevices){
+		const ledPositions = subdevice.ledPositions;
 
-		for (let i = 0; i < positions.length; i++) {
-			const ledPosition = positions[i];
+		for(let i = 0 ; i < ledPositions.length; i++){
+			const ledPosition = ledPositions[i];
 			let color;
 
 			if (LightingMode === "Forced") {
@@ -146,12 +103,10 @@ function GetRGBFromSubdevices() {
 				color = device.subdeviceColor(subdevice.id, ledPosition[0], ledPosition[1]);
 			}
 
-			RGBData[offset + i * 3] = color[0];
-			RGBData[offset + i * 3 + 1] = color[1];
-			RGBData[offset + i * 3 + 2] = color[2];
+			RGBData[i * 3] = color[0];
+			RGBData[i * 3 + 1] = color[1];
+			RGBData[i * 3 + 2] = color[2];
 		}
-
-		offset += positions.length * 3;
 	}
 
 	return RGBData;
@@ -252,13 +207,12 @@ function CreateSubDevice(subdevice){
 
 function hexToRgb(hex) {
 	const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-	if (!result) return [0, 0, 0];
+	const colors = [];
+	colors[0] = parseInt(result[1], 16);
+	colors[1] = parseInt(result[2], 16);
+	colors[2] = parseInt(result[3], 16);
 
-	return [
-		parseInt(result[1], 16),
-		parseInt(result[2], 16),
-		parseInt(result[3], 16)
-	];
+	return colors;
 }
 
 function smoothRGB(targetRGB) {
@@ -507,7 +461,8 @@ class GoveeController{
 
 
 class GoveeProtocol {
-	constructor(ip, supportDreamView, supportRazer) {
+
+	constructor(ip, supportDreamView, supportRazer){
 		this.ip = ip;
 		this.port = 4003;
 		this.lastPacket = 0;
@@ -515,106 +470,90 @@ class GoveeProtocol {
 		this.supportRazer = supportRazer;
 	}
 
-	Probe() {
-		if (!UDPServer) return false;
-
-		return UDPServer.send(JSON.stringify({
-			msg: {
-				cmd: "status",
-				data: {}
+	setDeviceState(on){
+		UDPServer.send(JSON.stringify({
+			"msg": {
+				"cmd": "turn",
+				"data": {
+					"value": on ? 1 : 0
+				}
 			}
 		}));
 	}
 
-	Reconnect() {
-		if (syncHealth.reconnecting) return;
-
-		syncHealth.reconnecting = true;
-
-		try {
-			if (UDPServer) {
-				UDPServer.stop();
-				UDPServer = undefined;
+	SetBrightness(value) {
+		UDPServer.send(JSON.stringify({
+			"msg": {
+				"cmd":"brightness",
+				"data": {
+					"value":value
+				}
 			}
+		}));
+	}
 
-			UDPServer = new UdpSocketServer({
-				ip: this.ip,
-				broadcastPort: 4003,
-				listenPort: 4002
-			});
+	SetRazerMode(enable){
+		UDPServer.send(JSON.stringify({msg:{cmd:"razer", data:{pt:enable?"uwABsQEK":"uwABsQAL"}}}));
+	}
 
-			UDPServer.start();
+	calculateXorChecksum(packet) {
+		let checksum = 0;
 
-			this.setDeviceState(true);
-			if (this.supportRazer) {
-				this.SetRazerMode(true);
-			}
-		} catch (e) {
-			device.log(`Reconnect failed: ${e}`);
-		} finally {
-			syncHealth.reconnecting = false;
+		for (let i = 0; i < packet.length; i++) {
+		  checksum ^= packet[i];
 		}
+
+		return checksum;
 	}
 
-	setDeviceState(on) {
-		if (!UDPServer) return false;
+	createDreamViewPacket(colors) {
+		// Define the Dreamview protocol header
+		const header = [0xBB, 0x00, 0x20, 0xB0, 0x01, colors.length / 3];
+		const fullPacket = header.concat(colors);
+		const checksum = this.calculateXorChecksum(fullPacket);
+		fullPacket.push(checksum);
 
-		return UDPServer.send(JSON.stringify({
-			msg: {
-				cmd: "turn",
-				data: {
-					value: on ? 1 : 0
-				}
-			}
-		}));
+		return fullPacket;
 	}
 
-	SetRazerMode(enable) {
-		if (!UDPServer) return false;
+	createRazerPacket(colors) {
+		// Define the Razer protocol header
+		const header = [0xBB, 0x00, 0x0E, 0xB0, 0x01, colors.length / 3];
+		const fullPacket = header.concat(colors);
+		fullPacket.push(0); // Checksum
 
-		return UDPServer.send(JSON.stringify({
-			msg: {
-				cmd: "razer",
-				data: {
-					pt: enable ? "uwABsQEK" : "uwABsQAL"
-				}
-			}
-		}));
+		return fullPacket;
 	}
 
-	SetStaticColor(RGBData) {
-		if (!UDPServer) return false;
-
-		return UDPServer.send(JSON.stringify({
+	SetStaticColor(RGBData){
+		UDPServer.send(JSON.stringify({
 			msg: {
 				cmd: "colorwc",
 				data: {
-					color: { r: RGBData[0], g: RGBData[1], b: RGBData[2] },
+					color: {r: RGBData[0], g: RGBData[1], b: RGBData[2]},
 					colorTemInKelvin: 0
 				}
 			}
 		}));
+		device.pause(100);
 	}
 
-	SendEncodedPacket(packet) {
-		if (!UDPServer) return false;
-
+	SendEncodedPacket(packet){
 		const command = base64.Encode(packet);
+
 		const now = Date.now();
 
 		if (now - this.lastPacket > 1000) {
-			const okStatus = UDPServer.send(JSON.stringify({
+			UDPServer.send(JSON.stringify({
 				msg: {
 					cmd: "status",
 					data: {}
 				}
 			}));
-
-			if (!okStatus) return false;
 			this.lastPacket = now;
 		}
 
-		return UDPServer.send(JSON.stringify({
+		UDPServer.send(JSON.stringify({
 			msg: {
 				cmd: "razer",
 				data: {
@@ -625,21 +564,23 @@ class GoveeProtocol {
 	}
 
 	SendRGB(RGBData) {
+
 		if (this.supportDreamView) {
 			const packet = this.createDreamViewPacket(RGBData);
-			return this.SendEncodedPacket(packet);
-		} else if (this.supportRazer) {
+			this.SendEncodedPacket(packet);
+		} else if(this.supportRazer) {
 			const packet = this.createRazerPacket(RGBData);
-			return this.SendEncodedPacket(packet);
-		} else {
-			return this.SetStaticColor(RGBData.slice(0, 3));
+			this.SendEncodedPacket(packet);
+		} else{
+			this.SetStaticColor(RGBData.slice(0, 3));
 		}
 	}
 }
 
-class UdpSocketServer {
-	constructor(args) {
+class UdpSocketServer{
+	constructor (args) {
 		this.count = 0;
+		/** @type {udpSocket | null} */
 		this.server = null;
 		this.listenPort = args?.listenPort ?? 0;
 		this.broadcastPort = args?.broadcastPort ?? 4001;
@@ -647,49 +588,90 @@ class UdpSocketServer {
 		this.isDiscoveryServer = args?.isDiscoveryServer ?? false;
 	}
 
-	send(packet) {
-		try {
-			if (!this.server) {
-				this.server = udp.createSocket();
-				device.log("Defining new UDP Socket so we can send data.");
-			}
-
-			this.server.send(packet);
-			return true;
-		} catch (e) {
-			device.log(`UDP send failed: ${e}`);
-			return false;
-		}
-	}
-
-	start() {
-		try {
+	write(packet, address, port) {
+		if(!this.server) {
 			this.server = udp.createSocket();
+		}
 
-			if (this.server) {
-				this.server.on('error', this.onError.bind(this));
-				this.server.on('message', this.onMessage.bind(this));
-				this.server.on('listening', this.onListening.bind(this));
-				this.server.on('connection', this.onConnection.bind(this));
-				this.server.bind(this.listenPort);
-				this.server.connect(this.ipToConnectTo, this.broadcastPort);
-			}
-		} catch (e) {
-			device.log(`UDP start failed: ${e}`);
+		this.server.write(packet, address, port);
+	}
+
+	send(packet) {
+		if(!this.server) {
+			this.server = udp.createSocket();
+			device.log("Defining new UDP Socket so we can send data.");
+		}
+
+		this.server.send(packet);
+	}
+
+	start(){
+		this.server = udp.createSocket();
+
+		if(this.server){
+
+			// Given we're passing class methods to the server, we need to bind the context (this instance) to the function pointer
+			this.server.on('error', this.onError.bind(this));
+			this.server.on('message', this.onMessage.bind(this));
+			this.server.on('listening', this.onListening.bind(this));
+			this.server.on('connection', this.onConnection.bind(this));
+			this.server.bind(this.listenPort);
+			this.server.connect(this.ipToConnectTo, this.broadcastPort);
+
+		}
+	};
+
+	stop(){
+		if(this.server) {
+			this.server.disconnect();
+			this.server.close();
 		}
 	}
 
-	stop() {
-		try {
-			if (this.server) {
-				this.server.disconnect();
-				this.server.close();
-				this.server = null;
+	onConnection(){
+		service.log('Connected to remote socket!');
+		service.log("Remote Address:");
+		service.log(this.server.remoteAddress(), {pretty: true});
+		service.log("Sending Check to socket");
+
+		const bytesWritten = this.server.send(JSON.stringify({
+			msg: {
+				cmd: "scan",
+				data: {
+					account_topic: "reserve",
+				},
 			}
-		} catch (e) {
-			device.log(`UDP stop failed: ${e}`);
+		}));
+
+		if(bytesWritten === -1){
+			service.log('Error sending data to remote socket');
 		}
+	};
+
+	onListenerResponse(msg) {
+		service.log('Data received from client');
+		service.log(msg, {pretty: true});
 	}
+
+	onListening(){
+		const address = this.server.address();
+		service.log(`Server is listening at port ${address.port}`);
+
+		// Check if the socket is bound (no error means it's bound but we'll check anyway)
+		service.log(`Socket Bound: ${this.server.state === this.server.BoundState}`);
+	};
+	onMessage(msg){
+		service.log('Data received from client');
+		service.log(msg, {pretty: true});
+
+		if(this.isDiscoveryServer) {
+			discovery.forceDiscovery(msg);
+		}
+	};
+	onError(code, message){
+		service.log(`Error: ${code} - ${message}`);
+		//this.server.close(); // We're done here
+	};
 }
 
 class IPCache{
